@@ -1,15 +1,11 @@
 package cmd
 
 import (
-	"bytes"
-	"fmt"
 	"log"
 	"os"
-	"os/exec"
-	"os/user"
-	"strings"
 
 	"github.com/spf13/cobra"
+	dash "github.com/tylerauerbeck/dash/dash"
 )
 
 // runCmd represents the run command
@@ -20,67 +16,51 @@ var runCmd = &cobra.Command{
 to run using local Ansible, but can also run OpenShift-Applier 
 in a Docker container.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		docker, _ := cmd.Flags().GetBool("docker")
 
-		if docker {
-			var SELinuxModifier string
-			if checkSELinux() {
-				SELinuxModifier = ":z"
-			} else {
-				SELinuxModifier = ""
-			}
-			user, err := user.Current()
-			if err != nil {
-				log.Fatal("Could not determine current user ID")
-			}
-			pwd, err := os.Getwd()
-			if err != nil {
-				log.Fatal("Could not determine current working directory")
-			}
-			docker := exec.Command(
-				"docker",
-				"run",
-				"-u", user.Uid,
-				"-v", fmt.Sprintf("%s/.kube/config:/openshift-applier/.kube/config%s", user.HomeDir, SELinuxModifier),
-				"-v", fmt.Sprintf("%s/:/tmp/applier%s", pwd, SELinuxModifier),
-				"-e", "INVENTORY_PATH=/tmp/applier/inventory",
-				"-t", "redhatcop/openshift-applier",
-			)
-			docker.Dir = pwd
-			docker.Stdout = os.Stdout
-			docker.Stderr = os.Stderr
-			if err := docker.Run(); err != nil {
-				log.Fatal(err)
-			}
-			fmt.Println("Finished executing Ansible playbook in Docker container.")
-		} else {
-			ansible := exec.Command("ansible-playbook", "./apply.yml", "-i", "inventory/")
-			ansible.Dir, _ = os.Getwd()
-			ansible.Stdout = os.Stdout
-			ansible.Stderr = os.Stderr
-			ansible.Env = append(os.Environ(),
-				"OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES", // Attempt to fix thread safety issue when running natively on macOS. Ref: https://github.com/ansible/ansible/issues/32499
-			)
-			if err := ansible.Run(); err != nil {
-				log.Fatal(err)
-			}
-			fmt.Println("Finished executing Ansible playbook.")
+		envFile := dash.GetInventoryConfig(envDir)
+		inventory := dash.GetInventoryContent(envDir, envFile)
+		version := inventory.Version
+
+		if version == "" {
+			log.Println("Unable to identify version. Defaulting to 2.X")
+			version = "2.0"
+			//TODO: Should we default to 2.X? Do we leave this configurable? What's the safer/saner default?
 		}
-	},
-}
 
-func checkSELinux() bool {
-	var out bytes.Buffer
-	cmd := exec.Command("getenforce")
-	cmd.Stdout = &out
-	err := cmd.Run()
-	if err == nil && strings.Trim(out.String(), "\n") == "Enforcing" {
-		return true
-	}
-	return false
+		switch string(version[0]) {
+		case "3":
+			log.Println("Running Dash..")
+			//TODO: RunV3()
+			dash.ExecV3(inventory)
+		case "2":
+			log.Println("Running Openshift-Applier..")
+			//TODO: Do something here to find Inventory that contains openshift_cluster_content
+		default:
+			log.Println("Unable to determine version. Exiting.")
+			os.Exit(1)
+		}
+
+		//var data, _ = ioutil.ReadFile("/Users/tylerauerbeck/workspace/test-cli/dash.yml")
+		//t := dash.Inventory{}
+
+		//err := yaml.Unmarshal([]byte(data), &t)
+		//if err != nil {
+		//	log.Fatalf("error: %v", err)
+		//}
+		//fmt.Printf("--- t:\n%v\n\n", t)
+
+		//fmt.Println(t.Resources)
+		//fmt.Println("hello")
+
+		//d, err := yaml.Marshal(&t)
+		//if err != nil {
+		//	log.Fatalf("error: %v", err)
+		//}
+		//fmt.Printf("--- t dump:\n%s\n\n", string(d))
+
+	},
 }
 
 func init() {
 	rootCmd.AddCommand(runCmd)
-	runCmd.Flags().BoolP("docker", "d", false, "Run using the OpenShift-Applier Docker image instead of local Ansible.")
 }

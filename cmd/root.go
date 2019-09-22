@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"log"
 	"os"
 
 	homedir "github.com/mitchellh/go-homedir"
@@ -10,6 +11,7 @@ import (
 )
 
 var cfgFile string
+var envDir string
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -36,6 +38,7 @@ func init() {
 	cobra.OnInitialize(initConfig)
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.applier-cli.yaml)")
+	rootCmd.PersistentFlags().StringVar(&envDir, "env-dir", "", "directory that contains your applier files")
 }
 
 // initConfig reads in config file and ENV variables if set.
@@ -64,4 +67,15 @@ func initConfig() {
 	if err := viper.ReadInConfig(); err == nil {
 		fmt.Println("Using config file:", viper.ConfigFileUsed())
 	}
+
+	if envDir == "" {
+		var err error
+		envDir, err = os.Getwd()
+		if err != nil {
+			log.Fatal("Unable to read current directory")
+			os.Exit(1)
+		}
+
+	}
+
 }
